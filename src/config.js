@@ -6,6 +6,10 @@ function validateConfig(env = process.env) {
     PORT: env.PORT ? Number(env.PORT) : DEFAULT_PORT,
   };
 
+  if (!Number.isFinite(normalized.PORT) || normalized.PORT <= 0) {
+    throw new Error('PORT must be a positive number');
+  }
+
   const required = ['DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME'];
   const missing = required.filter((key) => !String(normalized[key] || '').trim());
 
@@ -23,5 +27,5 @@ function validateConfig(env = process.env) {
 module.exports = {
   DEFAULT_PORT,
   validateConfig,
-  config: validateConfig(process.env),
+  getConfig: validateConfig,
 };
