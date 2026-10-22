@@ -1,4 +1,5 @@
 const db = require('../db');
+const { getPermissionsForRole } = require('./permissions');
 
 async function tenant(req, res, next) {
   try {
@@ -14,7 +15,7 @@ async function tenant(req, res, next) {
       [req.uid, bid]
     );
     if (!r.length) return res.status(403).json({ error: 'Anda tidak punya akses ke bisnis ini' });
-    req.tenant = { id: bid, role: r[0].role };
+    req.tenant = { id: bid, role: r[0].role, permissions: getPermissionsForRole(r[0].role) };
     next();
   } catch (e) { next(e); }
 }

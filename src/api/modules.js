@@ -1,9 +1,9 @@
 const router = require('express').Router();
-const { z } = require('zod');
-const db = require('../db');
 const { auth } = require('../middleware/auth');
 const { tenant } = require('../middleware/tenant');
+const { requireRole } = require('../middleware/permissions');
 const { wrap } = require('../util');
+const db = require('../db');
 
 router.get('/modules', auth, tenant, wrap(async (req, res) => {
   const [rows] = await db.query(
@@ -13,9 +13,8 @@ router.get('/modules', auth, tenant, wrap(async (req, res) => {
   res.json(rows.map((r) => ({ ...r, enabled: !!r.enabled })));
 }));
 
-router.put('/modules/:code', auth, tenant, wrap(async (req, res) => {
-  if (!['owner', 'admin'].includes(req.tenant.role)) return res.status(403).json({ error: 'Hanya owner/admin' });
-  const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body);
+router.put('/modules/:code', auth, tenant, requireRole(['owner', 'admin']), wrap(async (req, res) => {
+  const { enabled } = require('zod').z.object({ enabled: require('zod').z.boolean() }).parse(req.body);
   const [m] = await db.query('SELECT id FROM modules WHERE code = ? AND is_active = 1', [req.params.code]);
   if (!m.length) return res.status(404).json({ error: 'Modul tidak ditemukan' });
   await db.query(
