@@ -7,29 +7,48 @@ const { wrap, httpErr, today } = require('../util');
 const guard = [auth, tenant, requireModule('finance')];
 const DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
-function range(q) {
+function range(q = {}) {
   const t = today();
-  return { from: DATE.safeParse(q.from).success ? q.from : t.slice(0, 8) + '01', to: DATE.safeParse(q.to).success ? q.to : t };
+  const from = DATE.safeParse(q.from).success ? q.from : `${t.slice(0, 8)}01`;
+  const to = DATE.safeParse(q.to).success ? q.to : t;
+  return { from, to };
 }
 
 router.get('/finance/summary', guard, wrap(async (req, res) => {
-  const { from, to } = range(req.query), bid = req.tenant.id;
+  const { from, to } = range(req.query);
+  const bid = req.tenant.id;
+
   const sum = async (table, col) => {
-    const [[r]] = await db.query(`SELECT COALESCE(SUM(amount),0) t FROM ${table} WHERE business_id=? AND ${col} BETWEEN ? AND ?`, [bid, from, to]);
+    const [[r]] = await db.query(
+      `SELECT COALESCE(SUM(amount),0) t FROM ${table} WHERE business_id=? AND ${col} BETWEEN ? AND ?`,
+      [bid, from, to]
+    );
     return Number(r.t);
   };
+
   const income = await sum('incomes', 'income_date');
   const expense = await sum('expenses', 'expense_date');
-  const [cats] = await db.query(
-    'SELECT category, SUM(amount) total FROM expenses WHERE business_id=? AND expense_date BETWEEN ? AND ? GROUP BY category ORDER BY total DESC', [bid, from, to]);
 
-  const [[receivableRow]] = await db.query(`
-    SELECT COALESCE(SUM(s.total - COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.sale_id = s.id AND p.business_id = s.business_id AND p.status='paid'),0)),0) AS total
-    FROM sales s
-    WHERE s.business_id = ? AND s.status = 'completed' AND s.payment_status IN ('partial','unpaid')
-  `, [bid]);
+  const [cats] = await db.query(
+    'SELECT category, SUM(amount) total FROM expenses WHERE business_id=? AND expense_date BETWEEN ? AND ? GROUP BY category ORDER BY total DESC',
+    [bid, from, to]
+  );
+
+  const [[receivableRow]] = await db.query(
+    `SELECT COALESCE(SUM(s.total - COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.sale_id = s.id AND p.business_id = s.business_id AND p.status='paid'),0)),0) AS total
+       FROM sales s
+      WHERE s.business_id = ? AND s.status = 'completed' AND s.payment_status IN ('partial','unpaid')`,
+    [bid]
+  );
 
   const receivables = Number(receivableRow.total || 0);
+
+  const [[countRow]] = await db.query(
+    `SELECT COUNT(*) AS n
+       FROM sales s
+      WHERE s.business_id = ? AND s.status = 'completed' AND s.payment_status IN ('partial','unpaid')`,
+    [bid]
+  );
 
   res.json({
     from,
@@ -38,42 +57,42 @@ router.get('/finance/summary', guard, wrap(async (req, res) => {
     expense,
     profit: income - expense,
     receivables,
-    receivables_count: await (async () => {
-      const [[row]] = await db.query(`
-        SELECT COUNT(*) AS n
-        FROM sales s
-        WHERE s.business_id = ? AND s.status = 'completed' AND s.payment_status IN ('partial','unpaid')
-      `, [bid]);
-      return Number(row.n || 0);
-    })(),
+    receivables_count: Number(countRow.n || 0),
     expense_by_category: cats.map((c) => ({ category: c.category, total: Number(c.total) })),
   });
 }));
 
 router.get('/finance/transactions', guard, wrap(async (req, res) => {
-  const { from, to } = range(req.query), bid = req.tenant.id;
+  const { from, to } = range(req.query);
+  const bid = req.tenant.id;
+
   const [rows] = await db.query(
     `(SELECT 'income' AS kind, id, category, description, amount, income_date AS d, reference_type
         FROM incomes WHERE business_id=? AND income_date BETWEEN ? AND ?)
-     UNION ALL
-     (SELECT 'expense', id, category, description, amount, expense_date, NULL
+      UNION ALL
+      (SELECT 'expense', id, category, description, amount, expense_date, NULL
         FROM expenses WHERE business_id=? AND expense_date BETWEEN ? AND ?)
-     ORDER BY d DESC, id DESC LIMIT 100`, [bid, from, to, bid, from, to]);
+      ORDER BY d DESC, id DESC LIMIT 100`,
+    [bid, from, to, bid, from, to]
+  );
+
   res.json(rows);
 }));
 
 router.get('/finance/receivables', guard, wrap(async (req, res) => {
   const bid = req.tenant.id;
-  const [rows] = await db.query(`
-    SELECT s.id, s.invoice_number, c.name AS customer_name, s.total,
-           COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.sale_id = s.id AND p.business_id = s.business_id AND p.status='paid'), 0) AS paid,
-           (s.total - COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.sale_id = s.id AND p.business_id = s.business_id AND p.status='paid'), 0)) AS outstanding,
-           s.sold_at AS due_at
-    FROM sales s
-    LEFT JOIN customers c ON c.id = s.customer_id AND c.business_id = s.business_id
-    WHERE s.business_id = ? AND s.status = 'completed' AND s.payment_status IN ('partial','unpaid')
-    ORDER BY s.id DESC
-  `, [bid]);
+
+  const [rows] = await db.query(
+    `SELECT s.id, s.invoice_number, c.name AS customer_name, s.total,
+            COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.sale_id = s.id AND p.business_id = s.business_id AND p.status='paid'), 0) AS paid,
+            (s.total - COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.sale_id = s.id AND p.business_id = s.business_id AND p.status='paid'), 0)) AS outstanding,
+            s.sold_at AS due_at
+       FROM sales s
+       LEFT JOIN customers c ON c.id = s.customer_id AND c.business_id = s.business_id
+      WHERE s.business_id = ? AND s.status = 'completed' AND s.payment_status IN ('partial','unpaid')
+      ORDER BY s.id DESC`,
+    [bid]
+  );
 
   res.json(rows.map((r) => ({
     id: r.id,
@@ -98,7 +117,8 @@ router.post('/finance/expenses', guard, wrap(async (req, res) => {
   const d = entry.parse(req.body);
   const [r] = await db.query(
     'INSERT INTO expenses (business_id,category,description,amount,payment_method,expense_date,created_by) VALUES (?,?,?,?,?,?,?)',
-    [req.tenant.id, d.category, d.description || null, d.amount, d.payment_method || null, d.date || today(), req.uid]);
+    [req.tenant.id, d.category, d.description || null, d.amount, d.payment_method || null, d.date || today(), req.uid]
+  );
   res.status(201).json({ id: r.insertId });
 }));
 
@@ -106,7 +126,8 @@ router.post('/finance/incomes', guard, wrap(async (req, res) => {
   const d = entry.parse(req.body);
   const [r] = await db.query(
     'INSERT INTO incomes (business_id,category,description,amount,income_date,created_by) VALUES (?,?,?,?,?,?)',
-    [req.tenant.id, d.category, d.description || null, d.amount, d.date || today(), req.uid]);
+    [req.tenant.id, d.category, d.description || null, d.amount, d.date || today(), req.uid]
+  );
   res.status(201).json({ id: r.insertId });
 }));
 
