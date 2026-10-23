@@ -10,6 +10,17 @@ const guard = [auth, tenant, requireModule('whatsapp')];
 const readGuard = [...guard, requirePermission('whatsapp:read')];
 const writeGuard = [...guard, requirePermission('whatsapp:write')];
 const admin = (req, res, next) => (['owner', 'admin'].includes(req.tenant.role) ? next() : res.status(403).json({ error: 'Hanya owner/admin' }));
+const router = require('express').Router();
+
+router.use(require('./api/auth'));
+router.use(require('./api/modules'));
+router.use(require('./api/items'));
+router.use(require('./api/customers'));
+router.use(require('./api/finance'));
+router.use(require('./api/whatsapp'));
+router.use(require('./api/workflows'));
+router.use(require('./api/admin'));
+router.use(require('./api/permissions'));
 
 router.get('/whatsapp/status', readGuard, wrap(async (req, res) => res.json(await wa.status(req.tenant.id))));
 
