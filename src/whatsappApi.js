@@ -1,11 +1,11 @@
 const router = require('express').Router();
 const { z } = require('zod');
 const crypto = require('crypto');
-const db = require('../db');
-const events = require('../events');
-const { auth, tenant, requireModule } = require('../auth');
-const { wrap, httpErr, today } = require('../util');
-const { requirePermission } = require('../middleware/permissions');
+const db = require('./db');
+const events = require('./events');
+const { auth, tenant, requireModule } = require('./auth');
+const { wrap, httpErr, today } = require('./util');
+const { requirePermission } = require('./middleware/permissions');
 
 const guard = [auth, tenant, requireModule('sales')];
 const readGuard = [...guard, requirePermission('sales:read')];
