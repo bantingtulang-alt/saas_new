@@ -1,6 +1,6 @@
 const router = require('express').Router();
-const { auth } = require('./auth');
-const { tenant } = require('./tenant');
+const { auth } = require('../middleware/auth');
+const { tenant } = require('../middleware/tenant');
 const { wrap } = require('../util');
 
 router.get('/permissions', auth, tenant, wrap(async (req, res) => {
