@@ -6,10 +6,9 @@ router.use(require('./api/items'));
 router.use(require('./api/customers'));
 router.use(require('./api/sales'));
 router.use(require('./api/finance'));
+router.use(require('./api/permissions'));
 router.use(require('./reports'));
 router.use(require('./api/whatsapp'));
 router.use(require('./api/workflows'));
-router.use(require('./api/admin'));
-router.use(require('./api/permissions'));
 
 module.exports = router;
